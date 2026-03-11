@@ -18,7 +18,7 @@ Gem::Specification.new do |gem|
 
   gem.executables   = `git ls-files -- bin/*`.split("\n").collect { |f| File.basename(f) }
   gem.files         = `git ls-files`.split("\n")
-  gem.name          = "omniauth-ynab"
+  gem.name          = "omniauth-v2-ynab"
   gem.require_paths = %w[lib]
   gem.version       = OmniAuth::YNAB::VERSION
 end

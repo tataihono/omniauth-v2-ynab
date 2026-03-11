@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+# Never cancel a release mid-flight.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Only run when CI passed, and not on auto-bump commits (loop prevention).
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      !startsWith(github.event.workflow_run.head_commit.message, 'Bump version to')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Configure git
+        run: |
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+      - name: Resolve version
+        id: version
+        run: |
+          CURRENT=$(ruby -e "require_relative 'lib/omniauth-ynab/version'; puts OmniAuth::YNAB::VERSION")
+          LATEST_TAG=$(git tag -l "v*" --sort=-version:refname | head -1)
+          LATEST=${LATEST_TAG#v}
+          [ -z "$LATEST" ] && LATEST="0.0.0"
+
+          if [ "$CURRENT" = "$LATEST" ]; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            NEW="$MAJOR.$((MINOR + 1)).0"
+            sed -i "s/VERSION = \"$CURRENT\".freeze/VERSION = \"$NEW\".freeze/" lib/omniauth-ynab/version.rb
+            echo "version=$NEW" >> "$GITHUB_OUTPUT"
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build gem
+        run: gem build omniauth-v2-ynab.gemspec
+
+      - name: Tag release
+        run: |
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.version.outputs.version }}" \
+            omniauth-v2-ynab-*.gem \
+            --title "v${{ steps.version.outputs.version }}" \
+            --generate-notes
+
+      - name: Push to RubyGems
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: gem push omniauth-v2-ynab-*.gem
+
+      - name: Commit version bump
+        if: steps.version.outputs.bumped == 'true'
+        run: |
+          git add lib/omniauth-ynab/version.rb
+          git commit -m "Bump version to ${{ steps.version.outputs.version }}"
+          git push origin HEAD:main

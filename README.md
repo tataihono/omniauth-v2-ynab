@@ -1,11 +1,13 @@
-# omniauth-ynab
+# omniauth-v2-ynab
 
-[![Gem Version](https://img.shields.io/gem/v/omniauth-ynab.svg)](https://rubygems.org/gems/omniauth-ynab)
+[![Gem Version](https://img.shields.io/gem/v/omniauth-v2-ynab.svg)](https://rubygems.org/gems/omniauth-v2-ynab)
 [![CI](https://github.com/tataihono/omniauth-ynab/actions/workflows/ci.yml/badge.svg)](https://github.com/tataihono/omniauth-ynab/actions/workflows/ci.yml)
 
 OmniAuth strategy for [YNAB (You Need A Budget)](https://www.youneedabudget.com/) OAuth2.
 
 Compatible with **omniauth 2.x**, **oauth2 2.x**, and **omniauth-rails_csrf_protection 1.x**.
+
+> **Note:** This is a maintained fork of the original [`omniauth-ynab`](https://rubygems.org/gems/omniauth-ynab) gem, updated for the omniauth 2.x / oauth2 2.x ecosystem.
 
 ---
 
@@ -14,7 +16,7 @@ Compatible with **omniauth 2.x**, **oauth2 2.x**, and **omniauth-rails_csrf_prot
 Add to your `Gemfile`:
 
 ```ruby
-gem "omniauth-ynab"
+gem "omniauth-v2-ynab"
 gem "omniauth-rails_csrf_protection" # required for Rails with omniauth 2.x
 ```
 

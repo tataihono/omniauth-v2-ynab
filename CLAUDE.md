@@ -10,11 +10,12 @@ A single-strategy OmniAuth gem for YNAB OAuth2. It is a **direct implementation*
 |---|---|
 | `lib/omniauth/strategies/ynab.rb` | The strategy — start here for any auth-flow changes. |
 | `lib/omniauth-ynab/version.rb` | Gem version constant. |
-| `omniauth-ynab.gemspec` | Dependencies. Runtime: `omniauth ~> 2.0`, `oauth2 ~> 2.0`. |
+| `omniauth-v2-ynab.gemspec` | Dependencies. Runtime: `omniauth ~> 2.0`, `oauth2 ~> 2.0`. |
 | `spec/omniauth/strategies/ynab_spec.rb` | Full RSpec suite. |
 | `spec/helper.rb` | RSpec config — loads `omniauth-ynab`, sets up Rack::Test and WebMock. |
 | `.rubocop.yml` | RuboCop 1.x config. Target Ruby: 3.1. |
 | `.github/workflows/ci.yml` | CI — runs `bundle exec rake` (spec + rubocop) on Ruby 3.1–3.4 + head. |
+| `.github/workflows/release.yml` | Release — triggers after CI passes on main. Auto-bumps minor version unless already bumped, tags, creates GitHub Release, pushes to RubyGems. |
 
 ## Commands
 
@@ -44,6 +45,17 @@ bundle exec rake           # both (matches CI)
 - `CallbackError` specs test exact string output from `#message`, not regex — keep assertions strict.
 - New auth-flow behaviour needs both a positive and a failure-path test.
 
+## Releasing
+
+Releases are fully automated. Push to `main` → CI runs → on success, the release workflow:
+- Compares `VERSION` in `lib/omniauth-ynab/version.rb` against the latest git tag
+- If already bumped (version > tag): tags, builds, publishes to RubyGems, creates GitHub Release
+- If not bumped (version == tag): auto-bumps the minor version, then does the above
+
+To release a specific version (e.g. a major bump), just update `version.rb` manually before pushing. The release workflow will detect the higher version and publish it without an additional bump.
+
+The `RUBYGEMS_API_KEY` secret must be set in the repository settings for gem pushes to work.
+
 ## Versioning
 
-Follow semver. The gem is at `1.0.0` (breaking change from the original `0.0.3` — omniauth 2.x is not backwards compatible with 1.x).
+Follow semver. Published as `omniauth-v2-ynab` on RubyGems to distinguish from the unmaintained `omniauth-ynab` gem. The Ruby constant (`OmniAuth::Strategies::YNAB`) is unchanged.
