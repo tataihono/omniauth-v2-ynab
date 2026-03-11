@@ -21,6 +21,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       !startsWith(github.event.workflow_run.head_commit.message, 'Bump version to')
     runs-on: ubuntu-latest
+    environment: rubygems
 
     steps:
       - uses: actions/checkout@v4
