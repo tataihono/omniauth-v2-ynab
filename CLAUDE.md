@@ -1,4 +1,4 @@
-# omniauth-ynab — Claude guidance
+# omniauth-v2-ynab — Claude guidance
 
 ## What this repo is
 
