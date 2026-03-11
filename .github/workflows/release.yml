@@ -48,26 +48,34 @@ jobs:
           LATEST=${LATEST_TAG#v}
           [ -z "$LATEST" ] && LATEST="0.0.0"
 
-          if [ "$CURRENT" = "$LATEST" ]; then
+          if git rev-parse "v$CURRENT" >/dev/null 2>&1; then
+            echo "Tag v$CURRENT already exists — nothing to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "$CURRENT" = "$LATEST" ]; then
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
             NEW="$MAJOR.$((MINOR + 1)).0"
             sed -i "s/VERSION = \"$CURRENT\".freeze/VERSION = \"$NEW\".freeze/" lib/omniauth-ynab/version.rb
             echo "version=$NEW" >> "$GITHUB_OUTPUT"
             echo "bumped=true" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           else
             echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
             echo "bumped=false" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build gem
+        if: steps.version.outputs.skip != 'true'
         run: gem build omniauth-v2-ynab.gemspec
 
       - name: Tag release
+        if: steps.version.outputs.skip != 'true'
         run: |
           git tag "v${{ steps.version.outputs.version }}"
           git push origin "v${{ steps.version.outputs.version }}"
 
       - name: Create GitHub Release
+        if: steps.version.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -77,6 +85,7 @@ jobs:
             --generate-notes
 
       - name: Push to RubyGems
+        if: steps.version.outputs.skip != 'true'
         env:
           GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
         run: gem push omniauth-v2-ynab-*.gem
