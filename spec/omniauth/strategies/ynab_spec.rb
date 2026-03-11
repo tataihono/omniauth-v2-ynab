@@ -83,10 +83,12 @@ describe OmniAuth::Strategies::YNAB do
       end
 
       it "supports a custom code_challenge proc" do
-        instance = subject.new("abc", "def", :pkce => true, :pkce_options => {
-          :code_challenge => proc { |_v| "custom_challenge" },
-          :code_challenge_method => "plain",
-        })
+        instance = subject.new("abc", "def",
+          :pkce => true,
+          :pkce_options => {
+            :code_challenge => proc { |_v| "custom_challenge" },
+            :code_challenge_method => "plain",
+          })
         params = instance.authorize_params
         expect(params[:code_challenge]).to eq("custom_challenge")
         expect(params[:code_challenge_method]).to eq("plain")

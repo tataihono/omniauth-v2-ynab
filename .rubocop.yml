@@ -21,6 +21,9 @@ Lint/ScriptPermission:
 Metrics/AbcSize:
   Enabled: false
 
+Metrics/BlockLength:
+  Enabled: false
+
 Metrics/BlockNesting:
   Max: 2
 
@@ -42,6 +45,9 @@ Metrics/PerceivedComplexity:
   Enabled: false
 
 Naming/FileName:
+  Enabled: false
+
+Naming/PredicateMethod:
   Enabled: false
 
 Style/Documentation:
