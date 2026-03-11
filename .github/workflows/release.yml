@@ -87,7 +87,7 @@ jobs:
 
       - name: Configure RubyGems credentials (OIDC)
         if: steps.version.outputs.skip != 'true'
-        uses: rubygems/configure-rubygems-credentials@v1
+        uses: rubygems/configure-rubygems-credentials@v1.0.0
 
       - name: Push to RubyGems
         if: steps.version.outputs.skip != 'true'
