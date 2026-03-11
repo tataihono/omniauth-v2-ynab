@@ -52,6 +52,12 @@ jobs:
           if git rev-parse "v$CURRENT" >/dev/null 2>&1; then
             echo "Tag v$CURRENT already exists — nothing to release."
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif gh release view "v$CURRENT" --repo ${{ github.repository }} >/dev/null 2>&1; then
+            echo "GitHub release v$CURRENT already exists — nothing to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif curl -sf "https://rubygems.org/api/v1/versions/omniauth-v2-ynab.json" | grep -q "\"number\":\"$CURRENT\""; then
+            echo "v$CURRENT already published on RubyGems — nothing to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           elif [ "$CURRENT" = "$LATEST" ]; then
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
             NEW="$MAJOR.$((MINOR + 1)).0"
