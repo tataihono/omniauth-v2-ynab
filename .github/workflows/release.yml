@@ -75,6 +75,13 @@ jobs:
         if: steps.version.outputs.skip != 'true'
         run: gem build omniauth-v2-ynab.gemspec
 
+      - name: Debug OIDC claims
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          TOKEN=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=rubygems.org" | jq -r '.value')
+          echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq .
+
       - name: Configure RubyGems credentials (OIDC)
         if: steps.version.outputs.skip != 'true'
         uses: rubygems/configure-rubygems-credentials@v1.0.0
