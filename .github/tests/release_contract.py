@@ -4,6 +4,8 @@ Requires Ruby (standard-library YAML/JSON) and Python 3. No production credentia
 """
 import json
 import os
+import re
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
@@ -36,13 +38,17 @@ class ReleaseContract(unittest.TestCase):
                         GITHUB_OUTPUT=str(self.output), GITHUB_STEP_SUMMARY=str(self.summary),
                         CALLS=str(self.calls), PR_FILE=str(self.pr), VERSION="2.3.0",
                         VERSIONS='[{"number": "2.2.0"}, {"number": "2.3.0"}]',
-                        CURL_FAIL="0", PR_DENIED="0")
+                        CURL_FAIL="0", PR_DENIED="0",
+                        JOB_PULL_REQUESTS=WORKFLOW_DATA["jobs"]["release"].get(
+                            "permissions", {}).get("pull-requests", "none"))
         self.mock("curl", 'if [ "$CURL_FAIL" = 1 ]; then exit 22; fi\nprintf "%s" "$VERSIONS"\n')
         self.mock("gem", 'echo "gem $*" >> "$CALLS"\n')
         self.mock("gh", '''echo "gh $*" >> "$CALLS"
 case "$1 $2" in
   "pr list") if [ -f "$PR_FILE" ]; then cat "$PR_FILE"; fi ;;
-  "pr create") if [ "$PR_DENIED" = 1 ]; then exit 1; fi
+  "pr create")
+    if [ "$JOB_PULL_REQUESTS" != write ]; then exit 77; fi
+    if [ "$PR_DENIED" = 1 ]; then exit 1; fi
     echo https://example.test/pr/1 > "$PR_FILE" ;;
   "release create") ;;
   *) exit 99 ;;
@@ -105,6 +111,28 @@ esac
         job = WORKFLOW_DATA["jobs"]["release"]
         self.assertIn("github.event.workflow_run.event == 'push'", job["if"])
         self.assertEqual(WORKFLOW_DATA["permissions"], {"contents": "write", "id-token": "write"})
+        self.assertEqual(job["permissions"],
+                         {"contents": "write", "id-token": "write", "pull-requests": "write"})
+        self.assertEqual(set(WORKFLOW_DATA["jobs"]), {"release"})
+        workflow = WORKFLOW.read_text()
+        self.assertNotIn("write-all", workflow)
+        self.assertNotRegex(workflow, r"\bgh\s+pr\s+(review|merge)\b")
+        self.assertNotIn("--approve", workflow)
+        self.assertNotIn("--admin", workflow)
+        self.assertNotIn("--force", workflow)
+        self.assertNotRegex(workflow, r"\bgh\s+api\b")
+        allowed_pushes = [
+            ["git", "push", "origin", "HEAD:refs/heads/$BRANCH"],
+            ["git", "push", "origin", "v${{ steps.version.outputs.version }}"],
+        ]
+        pushes = []
+        for step in job["steps"]:
+            for line in step.get("run", "").splitlines():
+                if re.match(r"\s*git\s+push\b", line):
+                    args = shlex.split(line)
+                    self.assertIn(args, allowed_pushes)
+                    pushes.append(args)
+        self.assertCountEqual(pushes, allowed_pushes)
         for name in ["Build gem", "Configure RubyGems credentials (OIDC)", "Push to RubyGems",
                      "Tag release", "Create GitHub Release"]:
             self.assertEqual(STEPS[name]["if"], "steps.version.outputs.publish == 'true'")
@@ -156,6 +184,10 @@ esac
         self.assertEqual(first, self.git("ls-remote", "origin", "refs/heads/release/bookkeeping-v2.3.0"))
         calls = self.calls.read_text()
         self.assertEqual(calls.count("gh pr create"), 1)
+        self.assertEqual(self.env["JOB_PULL_REQUESTS"], "write")
+        self.assertTrue(self.pr.exists())
+        self.assertNotIn("gh pr review", calls)
+        self.assertNotIn("gh pr merge", calls)
         self.assertNotIn("gem push", calls)
         self.assertNotIn("release create", calls)
         self.assertEqual(self.git("ls-remote", "origin", "refs/heads/main").split()[0],
@@ -203,11 +235,23 @@ esac
 
     def test_denied_pr_preserves_ready_branch(self):
         self.run_step("Resolve version")
+        self.env["JOB_PULL_REQUESTS"] = "read"
+        result = self.run_step("Propose version bookkeeping PR", success=False)
+        self.assertIn("GITHUB_TOKEN cannot create", result.stdout)
+        self.assertFalse(self.pr.exists())
+        ready = self.git("ls-remote", "origin", "refs/heads/release/bookkeeping-v2.3.0")
+        self.env["JOB_PULL_REQUESTS"] = "write"
         self.env["PR_DENIED"] = "1"
         result = self.run_step("Propose version bookkeeping PR", success=False)
         self.assertIn("GITHUB_TOKEN cannot create", result.stdout)
+        self.assertNotIn("Repository Actions PR creation is disabled", result.stdout)
+        self.assertNotIn("no pull-requests: write permission", result.stdout)
         self.assertIn("release/bookkeeping-v2.3.0", self.summary.read_text())
-        self.assertTrue(self.git("ls-remote", "origin", "refs/heads/release/bookkeeping-v2.3.0"))
+        self.assertEqual(ready, self.git("ls-remote", "origin", "refs/heads/release/bookkeeping-v2.3.0"))
+        self.env["PR_DENIED"] = "0"
+        self.run_step("Propose version bookkeeping PR")
+        self.assertTrue(self.pr.exists())
+        self.assertEqual(ready, self.git("ls-remote", "origin", "refs/heads/release/bookkeeping-v2.3.0"))
 
     def test_other_writer_branch_is_not_overwritten(self):
         self.git("switch", "-c", "other")

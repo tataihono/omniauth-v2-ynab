@@ -17,6 +17,10 @@ permissions:
 
 jobs:
   release:
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: write
     # Only run when CI passed, and not on auto-bump commits (loop prevention).
     if: |
       github.event.workflow_run.conclusion == 'success' &&
@@ -140,6 +144,6 @@ jobs:
           elif ! gh pr create --head "$BRANCH" --base main \
             --title "[auto] Bump version to $VERSION" \
             --body "Record the already published v$VERSION. This bookkeeping-only merge does not publish a gem."; then
-            echo "::error::Bookkeeping branch is ready, but GITHUB_TOKEN cannot create its PR. Repository Actions PR creation is disabled and this workflow has no pull-requests: write permission. A maintainer must open the PR; do not rerun publication."
+            echo "::error::Bookkeeping branch is ready, but GITHUB_TOKEN cannot create its PR. Check the reported API error and repository policy, or have a maintainer open the PR; do not rerun publication."
             exit 1
           fi
