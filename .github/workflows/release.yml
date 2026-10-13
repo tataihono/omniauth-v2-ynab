@@ -17,9 +17,14 @@ permissions:
 
 jobs:
   release:
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: write
     # Only run when CI passed, and not on auto-bump commits (loop prevention).
     if: |
       github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
       !startsWith(github.event.workflow_run.head_commit.message, '[auto] Bump version to')
     runs-on: ubuntu-latest
     environment: rubygems
@@ -41,44 +46,71 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
-      - name: Resolve version
-        id: version
+      # Version/release-maintenance PRs must not publish another gem when merged.
+      - name: Check release changes
+        id: changes
         run: |
-          CURRENT=$(ruby -e "require_relative 'lib/omniauth-v2-ynab/version'; puts OmniAuth::YNAB::VERSION")
-
-          ALREADY_TAGGED=false
-          git rev-parse "v$CURRENT" >/dev/null 2>&1 && ALREADY_TAGGED=true
-          gh release view "v$CURRENT" --repo ${{ github.repository }} >/dev/null 2>&1 && ALREADY_TAGGED=true
-          curl -sf "https://rubygems.org/api/v1/versions/omniauth-v2-ynab.json" | grep -q "\"number\":\"$CURRENT\"" && ALREADY_TAGGED=true
-
-          if [ "$ALREADY_TAGGED" = "true" ]; then
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-            NEW="$MAJOR.$((MINOR + 1)).0"
-            sed -i "s/VERSION = \"$CURRENT\".freeze/VERSION = \"$NEW\".freeze/" lib/omniauth-v2-ynab/version.rb
-            echo "v$CURRENT already released — auto-bumping to $NEW"
-            echo "version=$NEW" >> "$GITHUB_OUTPUT"
-            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          # Compare with the last released source, including all commits in a rebase merge.
+          RELEASE_BASE=$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD)
+          CHANGED=$(git diff --name-only "$RELEASE_BASE" HEAD)
+          if [ -n "$CHANGED" ] && printf '%s\n' "$CHANGED" | grep -Evq '^(lib/omniauth-v2-ynab/version\.rb|\.github/workflows/release\.yml|\.github/tests/release_contract\.py)$'; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Releasing v$CURRENT"
-            echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
-            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve version
+        id: version
+        if: steps.changes.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CURRENT=$(ruby -e "require_relative 'lib/omniauth-v2-ynab/version'; puts OmniAuth::YNAB::VERSION")
+          # Fail closed on registry errors; parse JSON rather than depending on spacing.
+          VERSIONS=$(curl --fail --silent --show-error "https://rubygems.org/api/v1/versions/omniauth-v2-ynab.json")
+          PUBLISHED=$(printf '%s' "$VERSIONS" | ruby -rjson -e 'puts JSON.parse(STDIN.read).map { |v| v.fetch("number") }')
+          released() {
+            git rev-parse --verify "refs/tags/v$1" >/dev/null 2>&1 ||
+              printf '%s\n' "$PUBLISHED" | grep -Fxq "$1"
+          }
+
+          VERSION="$CURRENT"
+          BUMPED=false
+          if released "$CURRENT"; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            VERSION="$MAJOR.$((MINOR + 1)).0"
+            sed -i "s/VERSION = \"$CURRENT\".freeze/VERSION = \"$VERSION\".freeze/" lib/omniauth-v2-ynab/version.rb
+            BUMPED=true
+          fi
+          PUBLISH=true
+          if released "$VERSION"; then
+            echo "v$VERSION already exists; skipping publication, tags and release creation"
+            PUBLISH=false
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "bumped=$BUMPED" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+
       - name: Build gem
+        if: steps.version.outputs.publish == 'true'
         run: gem build omniauth-v2-ynab.gemspec
 
       - name: Configure RubyGems credentials (OIDC)
+        if: steps.version.outputs.publish == 'true'
         uses: rubygems/configure-rubygems-credentials@main
 
       - name: Push to RubyGems
+        if: steps.version.outputs.publish == 'true'
         run: gem push omniauth-v2-ynab-*.gem
 
       - name: Tag release
+        if: steps.version.outputs.publish == 'true'
         run: |
           git tag "v${{ steps.version.outputs.version }}"
           git push origin "v${{ steps.version.outputs.version }}"
 
       - name: Create GitHub Release
+        if: steps.version.outputs.publish == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -87,9 +119,31 @@ jobs:
             --title "v${{ steps.version.outputs.version }}" \
             --generate-notes
 
-      - name: Commit version bump
+      - name: Propose version bookkeeping PR
         if: steps.version.outputs.bumped == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          git add lib/omniauth-v2-ynab/version.rb
-          git commit -m "[auto] Bump version to ${{ steps.version.outputs.version }}"
-          git push origin HEAD:main
+          BRANCH="release/bookkeeping-v$VERSION"
+          # Never overwrite a branch belonging to another writer.
+          git fetch origin
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git fetch origin "$BRANCH"
+            git diff --exit-code FETCH_HEAD
+          else
+            git switch -c "$BRANCH"
+            git add lib/omniauth-v2-ynab/version.rb
+            git commit -m "[auto] Bump version to $VERSION"
+            git push origin "HEAD:refs/heads/$BRANCH"
+          fi
+          echo "Ready bookkeeping branch: $BRANCH" >> "$GITHUB_STEP_SUMMARY"
+          PR=$(gh pr list --head "$BRANCH" --base main --state all --json url --jq '.[0].url')
+          if [ -n "$PR" ]; then
+            echo "$PR" >> "$GITHUB_STEP_SUMMARY"
+          elif ! gh pr create --head "$BRANCH" --base main \
+            --title "[auto] Bump version to $VERSION" \
+            --body "Record the already published v$VERSION. This bookkeeping-only merge does not publish a gem."; then
+            echo "::error::Bookkeeping branch is ready, but GITHUB_TOKEN cannot create its PR. Check the reported API error and repository policy, or have a maintainer open the PR; do not rerun publication."
+            exit 1
+          fi
