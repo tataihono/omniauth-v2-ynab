@@ -2,7 +2,7 @@ source "https://rubygems.org"
 
 gemspec
 
-gem "omniauth-rails_csrf_protection", "~> 1.0"
+gem "omniauth-rails_csrf_protection", "~> 2.0"
 gem "rack-test",                      "~> 2.0"
 gem "rake",                           "~> 13.0"
 gem "rspec",                          "~> 3.0"

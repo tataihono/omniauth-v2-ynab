@@ -147,6 +147,7 @@ module OmniAuth
 
       # Constant-time comparison to prevent timing attacks on state parameter.
       def secure_compare(string_a, string_b)
+        return false unless string_a.is_a?(String) && string_b.is_a?(String)
         return false unless string_a.bytesize == string_b.bytesize
 
         l = string_a.unpack("C#{string_a.bytesize}")
